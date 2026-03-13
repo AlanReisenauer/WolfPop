@@ -1,16 +1,195 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yellowstone Wolf & Elk Simulation</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Yellowstone Wolf Population — NPS Data &amp; Simulation</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div id="canvas-container">
-        <h1>Yellowstone Predator-Prey Simulation</h1>
+
+  <!-- Loading screen -->
+  <div id="loading-screen">
+    <div class="loader-inner">
+      <div class="loader-icon">🐺</div>
+      <p>Loading NPS data…</p>
     </div>
-    <script src="script.js"></script>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" style="display:none;">
+
+    <!-- Header -->
+    <header>
+      <div class="header-left">
+        <span class="header-tag">NPS · YNP</span>
+        <h1>Yellowstone Wolf Population</h1>
+        <p class="header-sub">Historical data 1995–2022 · Lotka-Volterra simulation</p>
+      </div>
+      <div class="header-right">
+        <a href="https://www.nps.gov/yell/learn/nature/wolf-reports.htm"
+           target="_blank" class="nps-link">NPS Source Data ↗</a>
+      </div>
+    </header>
+
+    <!-- Stats bar -->
+    <div id="stats-bar">
+      <div class="stat-card">
+        <span class="stat-label">Year</span>
+        <span class="stat-value primary" id="year-display">1995</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Wolves (NPS)</span>
+        <span class="stat-value wolf" id="stat-wolves">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Packs (NPS)</span>
+        <span class="stat-value wolf" id="stat-packs">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">N. Elk Herd (NPS)</span>
+        <span class="stat-value elk" id="stat-elk">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Wolves (Sim)</span>
+        <span class="stat-value sim" id="stat-sim-wolves">—</span>
+      </div>
+    </div>
+
+    <!-- Controls row -->
+    <div id="controls-row">
+      <!-- View toggle -->
+      <div class="control-group view-toggle">
+        <button id="btn-graph" class="view-btn active">
+          <span class="btn-icon">◈</span> Graph
+        </button>
+        <button id="btn-map" class="view-btn">
+          <span class="btn-icon">◉</span> Map
+        </button>
+      </div>
+
+      <!-- Time slider -->
+      <div class="control-group slider-group">
+        <label class="ctrl-label">1995</label>
+        <input type="range" id="time-slider" min="1995" max="2022" value="1995" step="1" />
+        <label class="ctrl-label">2022</label>
+        <button id="btn-play" class="play-btn">▶ Play</button>
+      </div>
+    </div>
+
+    <!-- Main content area -->
+    <div id="main-content">
+
+      <!-- Left: Visualization panel -->
+      <div id="viz-panel">
+        <!-- Graph -->
+        <div id="graph-panel" class="view-panel active">
+          <canvas id="graph-canvas"></canvas>
+        </div>
+        <!-- Map -->
+        <div id="map-panel" class="view-panel">
+          <div id="map-container"></div>
+          <div id="map-no-data">No territory data for this year. Upload wolf_territories.geojson to enable.</div>
+        </div>
+      </div>
+
+      <!-- Right: Parameters sidebar -->
+      <aside id="params-panel">
+        <div class="params-header">
+          <h2>Simulation Parameters</h2>
+          <button id="btn-reset-params" class="reset-btn">Reset</button>
+        </div>
+        <p class="params-desc">Adjust the Lotka-Volterra constants to fit the model to real data. Dashed lines show simulation output.</p>
+
+        <div class="param-row">
+          <div class="param-info">
+            <span class="param-sym">α</span>
+            <span class="param-name">Elk growth rate</span>
+          </div>
+          <div class="param-ctrl">
+            <input type="range" id="param-alpha" min="0.01" max="0.15" step="0.001" value="0.06" />
+            <span class="param-val" id="val-alpha">0.0600</span>
+          </div>
+        </div>
+
+        <div class="param-row">
+          <div class="param-info">
+            <span class="param-sym">β</span>
+            <span class="param-name">Predation rate</span>
+          </div>
+          <div class="param-ctrl">
+            <input type="range" id="param-beta" min="0.0001" max="0.003" step="0.00005" value="0.0008" />
+            <span class="param-val" id="val-beta">0.0008</span>
+          </div>
+        </div>
+
+        <div class="param-row">
+          <div class="param-info">
+            <span class="param-sym">δ</span>
+            <span class="param-name">Wolf growth efficiency</span>
+          </div>
+          <div class="param-ctrl">
+            <input type="range" id="param-delta" min="0.00001" max="0.0005" step="0.000005" value="0.00012" />
+            <span class="param-val" id="val-delta">0.0001</span>
+          </div>
+        </div>
+
+        <div class="param-row">
+          <div class="param-info">
+            <span class="param-sym">γ</span>
+            <span class="param-name">Wolf natural mortality</span>
+          </div>
+          <div class="param-ctrl">
+            <input type="range" id="param-gamma" min="0.01" max="0.2" step="0.002" value="0.08" />
+            <span class="param-val" id="val-gamma">0.0800</span>
+          </div>
+        </div>
+
+        <div class="param-row">
+          <div class="param-info">
+            <span class="param-sym">μ</span>
+            <span class="param-name">External mortality</span>
+          </div>
+          <div class="param-ctrl">
+            <input type="range" id="param-mu" min="0" max="0.15" step="0.001" value="0.02" />
+            <span class="param-val" id="val-mu">0.0200</span>
+          </div>
+          <p class="param-note">Accounts for harvest, disease (e.g. 2005 distemper), management removals</p>
+        </div>
+
+        <div class="params-legend">
+          <h3>Equation Reference</h3>
+          <div class="eq">dElk/dt = αE − βEW</div>
+          <div class="eq">dWolves/dt = δEW − γW − μW</div>
+          <div class="eq-note">E = elk · W = wolves</div>
+        </div>
+
+        <div class="params-legend" style="margin-top:16px;">
+          <h3>Territory Data</h3>
+          <p class="param-note">
+            To enable the map view, export your shapefiles as <code>wolf_territories.geojson</code>
+            from Mapshaper and place it in the <code>data/</code> folder.
+            Each feature needs a <code>year</code> property (integer).
+          </p>
+        </div>
+      </aside>
+    </div>
+
+  </div><!-- /#app -->
+
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
