@@ -1,0 +1,3 @@
+body { background-color: #1e1e1e; color: #ffffff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+#canvas-container { text-align: center; }
+h1 { font-size: 1.5rem; margin-bottom: 20px; color: #a8b2d1; }
