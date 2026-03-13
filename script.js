@@ -4,7 +4,8 @@ let elkHistory = [], wolfHistory = [], realWolfData = [];
 const startYear = 1995, pixelsPerYear = 25; 
 
 function preload() {
-    loadJSON('data/wolf_population.json', function(data) {
+    // FIX: Removed "data/" so it looks in the same folder as the script
+    loadJSON('wolf_population.json', function(data) {
         realWolfData = Object.values(data);
     });
 }
