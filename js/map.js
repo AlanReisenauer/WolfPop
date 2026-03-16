@@ -11,7 +11,6 @@ export class TerritoryMap {
     this.allFeatures = null;
     this.currentYear = 1995;
 
-    // Color palette for up to 20 distinct packs
     this.packColors = [
       '#e06c3a','#5ba85c','#4a9fd4','#c96bb5','#d4b84a',
       '#7ec8c8','#e08080','#82b882','#8080e0','#c8a070',
@@ -29,32 +28,39 @@ export class TerritoryMap {
       attributionControl: true
     });
 
-    // Satellite/terrain tiles (USGS National Map)
-    L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'USGS National Map | NPS Wolf Project',
-      maxZoom: 14,
-      minZoom: 7
+    // OpenStreetMap — reliable, no API key needed
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | NPS Wolf Project',
+      maxZoom: 18,
+      minZoom: 6
     }).addTo(this.map);
-
-    // Fallback to OpenStreetMap if USGS unavailable
-    this.map.on('tileerror', () => {
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-        maxZoom: 14,
-      }).addTo(this.map);
-    });
 
     this._addYellowstoneBoundary();
   }
 
+  loadTerritories(geojsonData) {
+    this.allFeatures = geojsonData;
+    const sample = geojsonData.features
+      .filter(f => f.properties.year)
+      .slice(0, 6)
+      .map(f => `${f.properties.year} — ${this._getPackName(f)}`);
+    console.log('[TerritoryMap] Sample features:', sample);
+    this._renderYear(this.currentYear);
+  }
+
+  setYear(year) {
+    this.currentYear = year;
+    if (this.allFeatures) this._renderYear(year);
+  }
+
   _addYellowstoneBoundary() {
-    // Rough bounding box of Yellowstone NP as a reference polygon
+    // Approximate Yellowstone NP boundary polygon
     const ynpBounds = [
       [44.132, -111.154], [44.132, -109.831],
       [45.103, -109.831], [45.103, -111.154]
     ];
     L.polygon(ynpBounds, {
-      color: '#ffffff',
+      color: '#f0c040',
       weight: 1.5,
       dashArray: '6 4',
       fillOpacity: 0,
@@ -64,58 +70,33 @@ export class TerritoryMap {
     });
   }
 
-  loadTerritories(geojsonData) {
-    this.allFeatures = geojsonData;
-    this._renderYear(this.currentYear);
-  }
-
-  setYear(year) {
-    this.currentYear = year;
-    if (this.allFeatures) this._renderYear(year);
-  }
-
   _renderYear(year) {
     if (this.geoLayer) {
       this.map.removeLayer(this.geoLayer);
       this.geoLayer = null;
     }
-
     if (!this.allFeatures) return;
 
-    // Filter features to the selected year
     const filtered = {
       type: 'FeatureCollection',
-      features: this.allFeatures.features.filter(f => {
-        const fy = f.properties?.year ?? this._inferYear(f);
-        return fy === year;
-      })
+      features: this.allFeatures.features.filter(f => f.properties.year === year)
     };
 
+    const noDataEl = document.getElementById('map-no-data');
     if (filtered.features.length === 0) {
-      document.getElementById('map-no-data').style.display = 'block';
+      noDataEl.style.display = 'flex';
       return;
     }
-    document.getElementById('map-no-data').style.display = 'none';
+    noDataEl.style.display = 'none';
 
     this.geoLayer = L.geoJSON(filtered, {
-      style: (feature) => this._styleFeature(feature),
-      onEachFeature: (feature, layer) => this._bindPopup(feature, layer)
+      style:         f          => this._styleFeature(f),
+      onEachFeature: (f, layer) => this._bindPopup(f, layer)
     }).addTo(this.map);
 
-    // Auto-fit the map to show all territories for the year
     try {
       this.map.fitBounds(this.geoLayer.getBounds(), { padding: [30, 30] });
-    } catch(e) { /* bounds may fail if geometry is empty */ }
-  }
-
-  _inferYear(feature) {
-    // Try to parse year from filename or name property
-    const src = feature.properties?.filename
-             ?? feature.properties?.name
-             ?? feature.properties?.Name
-             ?? '';
-    const m = src.match(/((?:19|20)\d{2})/);
-    return m ? parseInt(m[1]) : null;
+    } catch (e) {}
   }
 
   _styleFeature(feature) {
@@ -125,36 +106,38 @@ export class TerritoryMap {
       this.packColorMap[packName] = this.packColors[idx];
     }
     const color = this.packColorMap[packName];
-    return {
-      color,
-      weight: 2,
-      fillColor: color,
-      fillOpacity: 0.25,
-    };
+    return { color, weight: 2, fillColor: color, fillOpacity: 0.3 };
   }
 
   _getPackName(feature) {
-    return feature.properties?.Pack
-        ?? feature.properties?.pack
-        ?? feature.properties?.name
-        ?? feature.properties?.Name
-        ?? feature.properties?.filename?.replace(/^\d{4}_/, '').replace(/_mcp.*$/i,'')
-        ?? 'Unknown Pack';
+    const p = feature.properties ?? {};
+    for (const c of [p.PACK, p.Pack, p.pack, p.id, p.Id, p.ID, p.name, p.Name]) {
+      if (c && typeof c === 'string' && c.trim()) {
+        return c.replace(/^(?:19|20)\d{2}[_\-]/, '')
+                .replace(/_mcp.*$/i, '')
+                .trim();
+      }
+    }
+    return 'Unknown Pack';
   }
 
   _bindPopup(feature, layer) {
     const name = this._getPackName(feature);
-    const area = feature.properties?.ACRES
-              ?? feature.properties?.area
-              ?? feature.properties?.Area;
-    const areaStr = area ? `<br><span class="pop-label">Area:</span> ${Math.round(area).toLocaleString()} acres` : '';
+    const p    = feature.properties ?? {};
+    const year = p.year ?? '—';
+    const area = p.ACRES ?? p.area ?? p.Area ?? p.AREA;
+    const areaStr = area
+      ? `<br><span class="pop-label">Area:</span> ${Math.round(area).toLocaleString()} acres`
+      : '';
+
     layer.bindPopup(`
       <div class="map-popup">
         <strong>${name}</strong>
+        <br><span class="pop-label">Year:</span> ${year}
         ${areaStr}
       </div>
     `);
-    layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.5, weight: 3 }));
+    layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.55, weight: 3 }));
     layer.on('mouseout',  () => this.geoLayer?.resetStyle(layer));
   }
 }
